@@ -53,7 +53,7 @@ export async function sendSubmissionEmails(
   submission: ColaSubmission,
   decision: AutomationDecision
 ): Promise<void> {
-  const adminEmail = process.env.ADMIN_NOTIFY_EMAIL;
+  const adminEmails = parseEmailList(process.env.ADMIN_NOTIFY_EMAIL);
   await provider.send({
     to: [submission.applicantEmail],
     subject: `COLA submission received: ${submission.brandName}`,
@@ -67,9 +67,9 @@ export async function sendSubmissionEmails(
     })
   });
 
-  if (adminEmail) {
+  if (adminEmails.length) {
     await provider.send({
-      to: [adminEmail],
+      to: adminEmails,
       subject: `New COLA submission: ${submission.brandName}`,
       text: `Submission ${submission.id} was submitted by ${submission.applicantEmail}. Automated status: ${decision.status}.`,
       html: renderTddsEmail({
@@ -116,6 +116,14 @@ function submissionRows(submission: ColaSubmission, rationale?: string): Array<[
     ["Images", String(submission.images.length)],
     ...(rationale ? ([["Decision rationale", rationale]] as Array<[string, string]>) : [])
   ];
+}
+
+function parseEmailList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean);
 }
 
 function renderTddsEmail({

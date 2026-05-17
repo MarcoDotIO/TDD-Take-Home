@@ -191,6 +191,33 @@ describe("API auth boundaries and email side effects", () => {
     expect(emailProvider.messages[0]?.html).toContain("Decision rationale");
   });
 
+  test("sends admin submission notifications to all configured recipients", async () => {
+    const previousAdminNotifyEmail = process.env.ADMIN_NOTIFY_EMAIL;
+    process.env.ADMIN_NOTIFY_EMAIL = "admin-one@example.gov, admin-two@example.gov";
+    try {
+      const emailProvider = new CapturingEmailProvider();
+      const app = createTestApp({ repository: new InMemorySubmissionRepository(), emailProvider });
+      const applicantHeaders = await authHeaders(app, "applicant-admin-copy@example.gov");
+
+      const response = await app.fetch(
+        new Request("http://localhost/submissions", {
+          method: "POST",
+          headers: applicantHeaders,
+          body: JSON.stringify(validDraft())
+        })
+      );
+
+      expect(response.status).toBe(201);
+      expect(emailProvider.messages).toHaveLength(2);
+      expect(emailProvider.messages[1]?.to).toEqual(["admin-one@example.gov", "admin-two@example.gov"]);
+      expect(emailProvider.messages[1]?.subject).toContain("New COLA submission");
+      expect(emailProvider.messages[1]?.html).toContain("Admin notification");
+    } finally {
+      if (previousAdminNotifyEmail === undefined) delete process.env.ADMIN_NOTIFY_EMAIL;
+      else process.env.ADMIN_NOTIFY_EMAIL = previousAdminNotifyEmail;
+    }
+  });
+
   test("does not create a fallback decision when Anthropic review is unavailable", async () => {
     const repository = new InMemorySubmissionRepository();
     const app = createTestApp({
