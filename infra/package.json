@@ -1,0 +1,21 @@
+{
+  "name": "@cola/infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cola-infra": "bin/cola-infra.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "synth": "cdk synth"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.232.0",
+    "constructs": "^10.4.4"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.1037.0"
+  }
+}

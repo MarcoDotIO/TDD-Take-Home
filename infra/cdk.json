@@ -1,0 +1,6 @@
+{
+  "app": "bun run bin/cola-infra.ts",
+  "context": {
+    "@aws-cdk/aws-s3:serverAccessLogsUseBucketPolicy": true
+  }
+}

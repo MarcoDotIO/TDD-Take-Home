@@ -1,0 +1,25 @@
+{
+  "target": 250,
+  "collected": 250,
+  "output_dir": "/Users/marcodotio/Developer/US-Treasury-Take-Home/dataset/cola_cloud_250",
+  "files": {
+    "applications_jsonl": "/Users/marcodotio/Developer/US-Treasury-Take-Home/dataset/cola_cloud_250/applications.jsonl",
+    "applications_csv": "/Users/marcodotio/Developer/US-Treasury-Take-Home/dataset/cola_cloud_250/applications.csv",
+    "ttb_ids": "/Users/marcodotio/Developer/US-Treasury-Take-Home/dataset/cola_cloud_250/ttb_ids.txt",
+    "images_dir": "/Users/marcodotio/Developer/US-Treasury-Take-Home/dataset/cola_cloud_250/images"
+  },
+  "api_usage_context": {
+    "tier": "free",
+    "monthly_limit": 500,
+    "monthly_remaining_at_start": 498,
+    "per_minute_limit": 10,
+    "configured_requests_per_minute": 9,
+    "summary_requests": 3,
+    "detail_requests": 250,
+    "estimated_total_api_requests": 254
+  },
+  "download_counts": {
+    "applications": 250,
+    "images": 411
+  }
+}
