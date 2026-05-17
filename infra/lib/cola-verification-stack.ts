@@ -35,6 +35,12 @@ export class ColaVerificationStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN
     });
 
+    const usersTable = new Table(this, "UsersTable", {
+      partitionKey: { name: "email", type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+
     const userPool = new UserPool(this, "UserPool", {
       selfSignUpEnabled: true,
       signInAliases: { email: true },
@@ -80,12 +86,14 @@ export class ColaVerificationStack extends Stack {
       environment: {
         SUBMISSIONS_TABLE: submissionsTable.tableName,
         AUDIT_TABLE: auditTable.tableName,
+        USERS_TABLE: usersTable.tableName,
         UPLOAD_BUCKET: uploadBucket.bucketName
       }
     });
 
     submissionsTable.grantReadWriteData(apiHandler);
     auditTable.grantReadWriteData(apiHandler);
+    usersTable.grantReadWriteData(apiHandler);
     uploadBucket.grantReadWrite(apiHandler);
     apiHandler.addToRolePolicy(
       new PolicyStatement({
@@ -109,7 +117,7 @@ export class ColaVerificationStack extends Stack {
     const api = new RestApi(this, "Api", {
       restApiName: "cola-verification-api",
       defaultCorsPreflightOptions: {
-        allowHeaders: ["authorization", "content-type", "x-user-id", "x-user-email", "x-user-roles"],
+        allowHeaders: ["authorization", "content-type"],
         allowMethods: ["GET", "POST", "OPTIONS"],
         allowOrigins: ["*"]
       }

@@ -4,45 +4,113 @@ import { Check, RefreshCcw, ShieldCheck, Upload } from "lucide-react";
 import type { ColaSubmission, DecisionStatus } from "@cola/shared";
 import {
   createSubmission,
+  getCurrentUser,
   listAdminSubmissions,
   listApplicantSubmissions,
+  login,
   overrideSubmission,
+  registerApplicant,
   type Session,
   type SubmissionRecord
 } from "./api";
 import "./styles.css";
 
-const applicantSession: Session = {
-  userId: "applicant-local",
-  email: import.meta.env.VITE_APPLICANT_EMAIL ?? "applicant@example.gov",
-  roles: ["applicant"]
-};
-
-const adminSession: Session = {
-  userId: "admin-local",
-  email: import.meta.env.VITE_ADMIN_EMAIL ?? "admin@example.gov",
-  roles: ["admin"]
-};
+const SESSION_STORAGE_KEY = "cola-auth-session";
 
 function App() {
-  const [mode, setMode] = useState<"applicant" | "admin">("applicant");
-  const session = mode === "admin" ? adminSession : applicantSession;
+  const [session, setSession] = useState<Session | undefined>(() => loadSession());
+  const [authError, setAuthError] = useState<string>();
+  const isAdmin = session?.roles.includes("admin") ?? false;
+
+  useEffect(() => {
+    if (!session) return;
+    getCurrentUser(session)
+      .then((user) => storeSession({ ...session, ...user }, setSession))
+      .catch(() => {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+        setSession(undefined);
+      });
+  }, [session?.token]);
+
+  function logout() {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    setSession(undefined);
+  }
 
   return (
     <main>
       <header>
         <h1>COLA Verification</h1>
+        {session && (
+          <div className="session">
+            <span>{session.email}</span>
+            <Status status={isAdmin ? "admin" : "applicant"} />
+            <button type="button" onClick={logout}>
+              Log out
+            </button>
+          </div>
+        )}
+      </header>
+      {!session ? (
+        <LoginView
+          error={authError}
+          onAuthenticated={(nextSession) => {
+            setAuthError(undefined);
+            storeSession(nextSession, setSession);
+          }}
+          onError={setAuthError}
+        />
+      ) : isAdmin ? (
+        <AdminView session={session} />
+      ) : (
+        <ApplicantView session={session} />
+      )}
+    </main>
+  );
+}
+
+function LoginView({
+  error,
+  onAuthenticated,
+  onError
+}: {
+  error: string | undefined;
+  onAuthenticated: (session: Session) => void;
+  onError: (message: string | undefined) => void;
+}) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState(import.meta.env.VITE_APPLICANT_EMAIL ?? "");
+  const [password, setPassword] = useState("");
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    onError(undefined);
+    try {
+      const nextSession = mode === "login" ? await login(email, password) : await registerApplicant(email, password);
+      onAuthenticated(nextSession);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Authentication failed");
+    }
+  }
+
+  return (
+    <section className="auth-panel">
+      <form onSubmit={submit}>
+        <h2>{mode === "login" ? "Login" : "Applicant Sign Up"}</h2>
         <div className="segmented">
-          <button className={mode === "applicant" ? "active" : ""} onClick={() => setMode("applicant")}>
-            Applicant
+          <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
+            Login
           </button>
-          <button className={mode === "admin" ? "active" : ""} onClick={() => setMode("admin")}>
-            Admin
+          <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
+            Sign up
           </button>
         </div>
-      </header>
-      {mode === "applicant" ? <ApplicantView session={session} /> : <AdminView session={session} />}
-    </main>
+        <Field label="Email" value={email} onChange={setEmail} />
+        <Field label="Password" type="password" value={password} onChange={setPassword} />
+        <button type="submit">{mode === "login" ? "Login" : "Create account"}</button>
+        {error && <p className="error">{error}</p>}
+      </form>
+    </section>
   );
 }
 
@@ -68,7 +136,7 @@ function ApplicantView({ session }: { session: Session }) {
 
   useEffect(() => {
     refresh().catch((err) => setError(err.message));
-  }, []);
+  }, [session.token]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -159,7 +227,7 @@ function AdminView({ session }: { session: Session }) {
 
   useEffect(() => {
     refresh().catch((err) => setError(err.message));
-  }, []);
+  }, [session.token]);
 
   return (
     <section>
@@ -226,11 +294,21 @@ function SubmissionList({ title, records, onRefresh }: { title: string; records:
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({
+  label,
+  type = "text",
+  value,
+  onChange
+}: {
+  label: string;
+  type?: React.HTMLInputTypeAttribute;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <label>
       {label}
-      <input value={value} onChange={(event) => onChange(event.target.value)} />
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -258,3 +336,21 @@ function DecisionEvidence({ record }: { record: SubmissionRecord }) {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+function loadSession(): Session | undefined {
+  const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Session;
+    if (!parsed.token || !parsed.email || !Array.isArray(parsed.roles)) return undefined;
+    if (Date.parse(parsed.expiresAt) <= Date.now()) return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeSession(session: Session, setSession: (session: Session) => void) {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  setSession(session);
+}

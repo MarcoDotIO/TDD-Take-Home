@@ -11,6 +11,7 @@ enum DecisionStatus: String, Codable, CaseIterable, Identifiable {
 struct ColaImage: Codable, Identifiable {
     let id: String
     var localPath: String?
+    var url: String?
     var position: String?
 }
 

@@ -102,12 +102,7 @@ async function submitAndVerify() {
   };
   const response = await fetch(`${apiBaseUrl}/submissions`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-user-id": "live-e2e-applicant",
-      "x-user-email": env.VITE_APPLICANT_EMAIL || "live-e2e@example.gov",
-      "x-user-roles": "applicant"
-    },
+    headers: await authHeaders(),
     body: JSON.stringify(payload)
   });
   const body = await response.json().catch(() => ({}));
@@ -123,6 +118,23 @@ async function submitAndVerify() {
     fail(`Model was invoked, but expected approved and got ${body?.submission?.status}: ${JSON.stringify(body)}`);
   }
   console.log(`Live E2E passed for submission ${id}; model evidence: ${modelEvidence.extracted}.`);
+}
+
+async function authHeaders() {
+  const email = `live-e2e-api+${Date.now()}@example.gov`;
+  const response = await fetch(`${apiBaseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password: "live-e2e-password" })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status !== 201) {
+    fail(`Applicant account setup failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+  }
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${body.token}`
+  };
 }
 
 function curlJson(url) {

@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var mode: UserMode = .applicant
+    @State private var session: Session?
+    @State private var isRegistering = false
+    @State private var email = "applicant@example.gov"
+    @State private var password = ""
     @State private var records: [SubmissionRecord] = []
     @State private var errorMessage: String?
     @State private var brandName = "OLD TOM DISTILLERY"
@@ -14,46 +17,69 @@ struct ContentView: View {
 
     private let api = APIClient()
 
-    private var session: Session {
-        switch mode {
-        case .applicant:
-            Session(userId: "applicant-local", email: "applicant@example.gov", roles: ["applicant"])
-        case .admin:
-            Session(userId: "admin-local", email: "admin@example.gov", roles: ["admin"])
-        }
+    private var isAdmin: Bool {
+        session?.roles.contains("admin") == true
     }
 
     var body: some View {
-        NavigationSplitView {
-            VStack(alignment: .leading, spacing: 16) {
-                Picker("Mode", selection: $mode) {
-                    ForEach(UserMode.allCases) { mode in
-                        Text(mode.rawValue.capitalized).tag(mode)
+        if session == nil {
+            loginView
+        } else {
+            NavigationSplitView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let session {
+                        Text(session.email)
+                        Text(isAdmin ? "Admin" : "Applicant")
+                            .font(.caption)
                     }
-                }
-                .pickerStyle(.segmented)
 
-                if mode == .applicant {
-                    submissionForm
-                }
+                    if !isAdmin {
+                        submissionForm
+                    }
 
-                Button("Refresh") {
-                    Task { await refresh() }
-                }
+                    Button("Refresh") {
+                        Task { await refresh() }
+                    }
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
+                    Button("Log out") {
+                        session = nil
+                        records = []
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                    Spacer()
                 }
-                Spacer()
+                .padding()
+                .navigationTitle("COLA")
+            } detail: {
+                recordsView
+                    .task { await refresh() }
             }
-            .padding()
-            .navigationTitle("COLA")
-        } detail: {
-            recordsView
-                .task { await refresh() }
-                .onChange(of: mode) { _ in Task { await refresh() } }
         }
+    }
+
+    private var loginView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("Account", selection: $isRegistering) {
+                Text("Login").tag(false)
+                Text("Applicant Sign Up").tag(true)
+            }
+            .pickerStyle(.segmented)
+            TextField("Email", text: $email)
+            SecureField("Password", text: $password)
+            Button(isRegistering ? "Create account" : "Login") {
+                Task { await authenticate() }
+            }
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding()
+        .frame(minWidth: 380)
     }
 
     private var submissionForm: some View {
@@ -88,7 +114,7 @@ struct ContentView: View {
                 Text(record.decision?.rationale ?? "No automated decision")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if mode == .admin {
+                if isAdmin {
                     HStack {
                         Button("Approve") { Task { await override(record.id, status: .approved) } }
                         Button("Review") { Task { await override(record.id, status: .needsReview) } }
@@ -98,13 +124,14 @@ struct ContentView: View {
             }
             .padding(.vertical, 6)
         }
-        .navigationTitle(mode == .admin ? "Admin Queue" : "My Applications")
+        .navigationTitle(isAdmin ? "Admin Queue" : "My Applications")
     }
 
     private func refresh() async {
+        guard let session else { return }
         do {
             errorMessage = nil
-            records = mode == .admin
+            records = isAdmin
                 ? try await api.listAdminSubmissions(session: session)
                 : try await api.listApplicantSubmissions(session: session)
         } catch {
@@ -113,6 +140,7 @@ struct ContentView: View {
     }
 
     private func submit() async {
+        guard let session else { return }
         do {
             errorMessage = nil
             let draft = SubmissionDraft(
@@ -125,7 +153,7 @@ struct ContentView: View {
                 abv: Double(abv),
                 volume: Double(volume),
                 volumeUnit: "milliliters",
-                images: [ColaImage(id: UUID().uuidString, localPath: "front-label.png", position: "front")]
+                images: [ColaImage(id: UUID().uuidString, localPath: "front-label.png", url: nil, position: "front")]
             )
             _ = try await api.createSubmission(session: session, draft: draft)
             await refresh()
@@ -135,6 +163,7 @@ struct ContentView: View {
     }
 
     private func override(_ submissionId: String, status: DecisionStatus) async {
+        guard let session else { return }
         do {
             _ = try await api.overrideSubmission(
                 session: session,
@@ -142,6 +171,18 @@ struct ContentView: View {
                 status: status,
                 reason: "Native admin override to \(status.rawValue)"
             )
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func authenticate() async {
+        do {
+            errorMessage = nil
+            session = isRegistering
+                ? try await api.registerApplicant(email: email, password: password)
+                : try await api.login(email: email, password: password)
             await refresh()
         } catch {
             errorMessage = error.localizedDescription

@@ -8,14 +8,14 @@ Local development uses:
 
 - Bun HTTP API with in-memory persistence
 - Console email provider
-- Static local auth headers for applicant/admin flows
+- Signed bearer sessions for applicant/admin flows
 - React/Vite frontend and SwiftUI client
 
 AWS deployment uses:
 
 - Cognito user pool groups for `Applicant` and `Admin`
 - S3 for encrypted label/application uploads
-- DynamoDB for submission state and audit events
+- DynamoDB for submission state, user accounts, and audit events
 - API Gateway as the public API edge
 - Lambda/ECS-compatible service deployment for the API
 - SES for transactional email
@@ -35,6 +35,12 @@ AWS deployment uses:
 
 The system never exposes chain-of-thought. It stores concise rationale, confidence, evidence fields, and audit events.
 Configured Anthropic providers are fail-closed: if the model call is unavailable, the API returns `503` and does not create a fallback `needs_review` record.
+
+## Account Boundaries
+
+The root web route renders a login screen until a signed session exists. Applicant registration creates applicant-only accounts. Admin login is reserved for emails configured in `ADMIN_EMAILS`; those accounts cannot be created through applicant sign-up. The API derives identity and role only from the verified bearer token, not from client-supplied role headers.
+
+Applicants can create/list/read only their own submissions. Admin-only routes require the `admin` role for queue access and override actions.
 
 ## Dataset Testing
 

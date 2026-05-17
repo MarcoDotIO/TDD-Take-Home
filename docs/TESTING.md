@@ -1,8 +1,6 @@
 # Testing
 
-The requested first pass adds tests but does not run them.
-
-Run later with:
+Run with:
 
 ```bash
 bun test
@@ -14,6 +12,6 @@ bun test
 - Golden accepted decisions: converts all 250 accepted records into internal submissions and asserts no hard rejection.
 - Tolerance: verifies optional missing fields and known category-family noise route to review rather than rejection.
 - Synthetic negatives: verifies real rejection paths without misusing the accepted dataset.
-- API unit tests: verifies applicant/admin auth boundaries and mocked email side effects.
+- API unit tests: verifies signed login/session behavior, applicant/admin auth boundaries, mocked email side effects, and Anthropic image-message wiring.
 
 AWS credentials are not required for tests. SES is mocked via an in-memory capture provider.

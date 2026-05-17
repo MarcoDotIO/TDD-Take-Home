@@ -6,6 +6,18 @@ export interface Session {
   userId: string;
   email: string;
   roles: string[];
+  token: string;
+  expiresAt: string;
+}
+
+interface AuthResponse {
+  token: string;
+  expiresAt: string;
+  user: {
+    userId: string;
+    email: string;
+    roles: string[];
+  };
 }
 
 export interface SubmissionRecord {
@@ -30,6 +42,19 @@ export interface SubmissionDraft {
   volume?: number;
   volumeUnit?: string;
   images: Array<{ id: string; localPath?: string; url?: string; position?: string }>;
+}
+
+export async function login(email: string, password: string): Promise<Session> {
+  return authFetch("/auth/login", email, password);
+}
+
+export async function registerApplicant(email: string, password: string): Promise<Session> {
+  return authFetch("/auth/register", email, password);
+}
+
+export async function getCurrentUser(session: Session): Promise<Pick<Session, "userId" | "email" | "roles">> {
+  const response = await apiFetch<{ user: Pick<Session, "userId" | "email" | "roles"> }>(session, "/auth/me");
+  return response.user;
 }
 
 export async function createSubmission(session: Session, draft: SubmissionDraft): Promise<SubmissionRecord> {
@@ -64,9 +89,7 @@ async function apiFetch<T>(session: Session, path: string, init: RequestInit = {
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-user-id": session.userId,
-      "x-user-email": session.email,
-      "x-user-roles": session.roles.join(","),
+      authorization: `Bearer ${session.token}`,
       ...init.headers
     }
   });
@@ -75,4 +98,18 @@ async function apiFetch<T>(session: Session, path: string, init: RequestInit = {
     throw new Error(body.error ?? response.statusText);
   }
   return response.json();
+}
+
+async function authFetch(path: string, email: string, password: string): Promise<Session> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(body.error ?? response.statusText);
+  }
+  const body = (await response.json()) as AuthResponse;
+  return { ...body.user, token: body.token, expiresAt: body.expiresAt };
 }

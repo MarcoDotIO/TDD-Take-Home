@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AutomationDecision, ColaSubmission } from "@cola/shared";
 import { createApp } from "../src/app";
 import { AiReviewUnavailableError, AnthropicMessagesReviewPipeline, ClaudePlatformAwsReviewPipeline } from "../src/aiPipeline";
+import { AuthService, InMemoryUserRepository } from "../src/auth";
 import type { EmailMessage, EmailProvider } from "../src/email";
 import { InMemorySubmissionRepository } from "../src/repository";
 
@@ -13,31 +14,105 @@ class CapturingEmailProvider implements EmailProvider {
   }
 }
 
-const applicantHeaders = {
-  "content-type": "application/json",
-  "x-user-id": "applicant-1",
-  "x-user-email": "applicant@example.gov",
-  "x-user-roles": "applicant"
-};
+type TestApp = ReturnType<typeof createApp>;
 
-const otherApplicantHeaders = {
-  ...applicantHeaders,
-  "x-user-id": "applicant-2",
-  "x-user-email": "other@example.gov"
-};
+function createTestApp(dependencies: Parameters<typeof createApp>[0] = {}) {
+  return createApp({
+    authService: new AuthService(new InMemoryUserRepository(), {
+      tokenSecret: "test-auth-secret",
+      adminEmails: ["admin@example.gov"],
+      adminBootstrapPassword: "admin-password"
+    }),
+    ...dependencies
+  });
+}
 
-const adminHeaders = {
-  "content-type": "application/json",
-  "x-user-id": "admin-1",
-  "x-user-email": "admin@example.gov",
-  "x-user-roles": "admin"
-};
+async function authHeaders(app: TestApp, email = "applicant@example.gov", password = "applicant-password") {
+  const response = await app.fetch(
+    new Request("http://localhost/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password })
+    })
+  );
+  expect(response.status).toBe(201);
+  const body = (await response.json()) as { token: string };
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${body.token}`
+  };
+}
+
+async function adminAuthHeaders(app: TestApp) {
+  const response = await app.fetch(
+    new Request("http://localhost/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "admin@example.gov", password: "admin-password" })
+    })
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { token: string };
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${body.token}`
+  };
+}
 
 describe("API auth boundaries and email side effects", () => {
+  test("authenticates applicants and rejects forged header-only admin access", async () => {
+    const app = createTestApp({ repository: new InMemorySubmissionRepository(), emailProvider: new CapturingEmailProvider() });
+
+    const registerResponse = await app.fetch(
+      new Request("http://localhost/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "new-applicant@example.gov", password: "applicant-password" })
+      })
+    );
+    expect(registerResponse.status).toBe(201);
+    const registered = (await registerResponse.json()) as { token: string; user: { email: string; roles: string[] } };
+    expect(registered.user.email).toBe("new-applicant@example.gov");
+    expect(registered.user.roles).toEqual(["applicant"]);
+
+    const forgedAdminResponse = await app.fetch(
+      new Request("http://localhost/admin/submissions", {
+        headers: {
+          "x-user-id": "forged-admin",
+          "x-user-email": "admin@example.gov",
+          "x-user-roles": "admin"
+        }
+      })
+    );
+    expect(forgedAdminResponse.status).toBe(401);
+  });
+
+  test("reserves admin email for admin login only", async () => {
+    const app = createTestApp({ repository: new InMemorySubmissionRepository(), emailProvider: new CapturingEmailProvider() });
+
+    const registerAdminEmail = await app.fetch(
+      new Request("http://localhost/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "admin@example.gov", password: "applicant-password" })
+      })
+    );
+    expect(registerAdminEmail.status).toBe(403);
+
+    const adminHeaders = await adminAuthHeaders(app);
+    const meResponse = await app.fetch(new Request("http://localhost/auth/me", { headers: adminHeaders }));
+    expect(meResponse.status).toBe(200);
+    const me = (await meResponse.json()) as { user: { email: string; roles: string[] } };
+    expect(me.user.email).toBe("admin@example.gov");
+    expect(me.user.roles).toEqual(["admin"]);
+  });
+
   test("prevents applicants from reading another applicant submission", async () => {
     const repository = new InMemorySubmissionRepository();
     const emailProvider = new CapturingEmailProvider();
-    const app = createApp({ repository, emailProvider });
+    const app = createTestApp({ repository, emailProvider });
+    const applicantHeaders = await authHeaders(app, "applicant-1@example.gov");
+    const otherApplicantHeaders = await authHeaders(app, "applicant-2@example.gov");
 
     const createResponse = await app.fetch(
       new Request("http://localhost/submissions", {
@@ -60,7 +135,9 @@ describe("API auth boundaries and email side effects", () => {
   test("prevents non-admin override and allows admin override", async () => {
     const repository = new InMemorySubmissionRepository();
     const emailProvider = new CapturingEmailProvider();
-    const app = createApp({ repository, emailProvider });
+    const app = createTestApp({ repository, emailProvider });
+    const applicantHeaders = await authHeaders(app, "applicant-override@example.gov");
+    const adminHeaders = await adminAuthHeaders(app);
 
     const createResponse = await app.fetch(
       new Request("http://localhost/submissions", {
@@ -93,7 +170,8 @@ describe("API auth boundaries and email side effects", () => {
 
   test("sends applicant confirmation on submission without live SES", async () => {
     const emailProvider = new CapturingEmailProvider();
-    const app = createApp({ repository: new InMemorySubmissionRepository(), emailProvider });
+    const app = createTestApp({ repository: new InMemorySubmissionRepository(), emailProvider });
+    const applicantHeaders = await authHeaders(app, "applicant-confirmation@example.gov");
 
     const response = await app.fetch(
       new Request("http://localhost/submissions", {
@@ -105,13 +183,13 @@ describe("API auth boundaries and email side effects", () => {
 
     expect(response.status).toBe(201);
     expect(emailProvider.messages).toHaveLength(1);
-    expect(emailProvider.messages[0]?.to).toEqual(["applicant@example.gov"]);
+    expect(emailProvider.messages[0]?.to).toEqual(["applicant-confirmation@example.gov"]);
     expect(emailProvider.messages[0]?.subject).toContain("COLA submission received");
   });
 
   test("does not create a fallback decision when Anthropic review is unavailable", async () => {
     const repository = new InMemorySubmissionRepository();
-    const app = createApp({
+    const app = createTestApp({
       repository,
       emailProvider: new CapturingEmailProvider(),
       reviewPipeline: {
@@ -120,6 +198,7 @@ describe("API auth boundaries and email side effects", () => {
         }
       }
     });
+    const applicantHeaders = await authHeaders(app, "applicant-unavailable@example.gov");
 
     const response = await app.fetch(
       new Request("http://localhost/submissions", {
@@ -154,11 +233,12 @@ describe("API auth boundaries and email side effects", () => {
         { status: 200, headers: { "content-type": "application/json" } }
       );
     });
-    const app = createApp({
+    const app = createTestApp({
       repository: new InMemorySubmissionRepository(),
       emailProvider: new CapturingEmailProvider(),
       reviewPipeline
     });
+    const applicantHeaders = await authHeaders(app, "applicant-anthropic@example.gov");
 
     const response = await app.fetch(
       new Request("http://localhost/submissions", {
@@ -228,11 +308,12 @@ describe("API auth boundaries and email side effects", () => {
         };
       }
     };
-    const app = createApp({
+    const app = createTestApp({
       repository: new InMemorySubmissionRepository(),
       emailProvider: new CapturingEmailProvider(),
       reviewPipeline
     });
+    const applicantHeaders = await authHeaders(app, "applicant-bedrock@example.gov");
 
     const response = await app.fetch(
       new Request("http://localhost/submissions", {
@@ -266,11 +347,12 @@ describe("API auth boundaries and email side effects", () => {
         }
       }
     });
-    const app = createApp({
+    const app = createTestApp({
       repository: new InMemorySubmissionRepository(),
       emailProvider: new CapturingEmailProvider(),
       reviewPipeline
     });
+    const applicantHeaders = await authHeaders(app, "applicant-claude-platform@example.gov");
 
     const response = await app.fetch(
       new Request("http://localhost/submissions", {

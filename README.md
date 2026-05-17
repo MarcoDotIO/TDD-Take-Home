@@ -26,6 +26,8 @@ bun run dev:web
 
 The API defaults to in-memory storage and a console email adapter. AWS services are only used when deployed/configured.
 
+The web root starts on a login screen. Applicant accounts can self-register; admin access is only granted to emails in `ADMIN_EMAILS` using the server-side admin bootstrap password. All protected API routes require signed bearer sessions, so applicants can only read their own submissions and only admins can reach the admin queue/override routes.
+
 ## Tests
 
 ```bash

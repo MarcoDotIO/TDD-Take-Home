@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { AdminOverride, ColaSubmission } from "@cola/shared";
 import { AiReviewUnavailableError, createReviewPipeline, type AiReviewPipeline } from "./aiPipeline";
-import { authFromRequest, canReadSubmission, HttpError, requireRole } from "./auth";
+import { AuthService, canReadSubmission, HttpError, InMemoryUserRepository, requireRole, type UserRepository } from "./auth";
 import { createEmailProvider, sendOverrideEmail, sendSubmissionEmails, type EmailProvider } from "./email";
-import { DynamoSubmissionRepository } from "./awsRepository";
+import { DynamoSubmissionRepository, DynamoUserRepository } from "./awsRepository";
 import { InMemorySubmissionRepository, type SubmissionRepository } from "./repository";
 
 export interface AppDependencies {
   repository?: SubmissionRepository;
+  userRepository?: UserRepository;
   emailProvider?: EmailProvider;
   reviewPipeline?: AiReviewPipeline;
+  authService?: AuthService;
 }
 
 export function createRepository(): SubmissionRepository {
@@ -24,10 +26,19 @@ export function createRepository(): SubmissionRepository {
   return new InMemorySubmissionRepository();
 }
 
+export function createUserRepository(): UserRepository {
+  if (process.env.USE_AWS_STORAGE === "true" && process.env.USERS_TABLE) {
+    return new DynamoUserRepository(process.env.USERS_TABLE);
+  }
+  return new InMemoryUserRepository();
+}
+
 export function createApp(dependencies: AppDependencies = {}) {
   const repository = dependencies.repository ?? createRepository();
+  const userRepository = dependencies.userRepository ?? createUserRepository();
   const emailProvider = dependencies.emailProvider ?? createEmailProvider();
   const reviewPipeline = dependencies.reviewPipeline ?? createReviewPipeline();
+  const authService = dependencies.authService ?? new AuthService(userRepository);
 
   return {
     async fetch(request: Request): Promise<Response> {
@@ -48,7 +59,21 @@ export function createApp(dependencies: AppDependencies = {}) {
           });
         }
 
-        const auth = authFromRequest(request);
+        if (request.method === "POST" && url.pathname === "/auth/register") {
+          const body = (await request.json()) as { email?: string; password?: string };
+          return json(await authService.registerApplicant(body.email ?? "", body.password ?? ""), 201);
+        }
+
+        if (request.method === "POST" && url.pathname === "/auth/login") {
+          const body = (await request.json()) as { email?: string; password?: string };
+          return json(await authService.login(body.email ?? "", body.password ?? ""));
+        }
+
+        const auth = authService.authFromRequest(request);
+
+        if (request.method === "GET" && url.pathname === "/auth/me") {
+          return json({ user: auth });
+        }
 
         if (request.method === "POST" && url.pathname === "/submissions") {
           requireRole(auth, "applicant");
@@ -186,6 +211,6 @@ function cors(response: Response): Response {
   }
   response.headers.set("access-control-allow-origin", "*");
   response.headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
-  response.headers.set("access-control-allow-headers", "content-type,x-user-id,x-user-email,x-user-roles,authorization");
+  response.headers.set("access-control-allow-headers", "content-type,authorization");
   return response;
 }

@@ -1,6 +1,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { AdminOverride, AuditEvent, AutomationDecision, ColaSubmission } from "@cola/shared";
+import type { UserAccount, UserRepository } from "./auth";
 import type { SubmissionRecord, SubmissionRepository } from "./repository";
 
 export class DynamoSubmissionRepository implements SubmissionRepository {
@@ -89,5 +90,36 @@ export class DynamoSubmissionRepository implements SubmissionRepository {
         }
       })
     );
+  }
+}
+
+export class DynamoUserRepository implements UserRepository {
+  private client = DynamoDBDocumentClient.from(new DynamoDBClient({ region: process.env.AWS_REGION }), {
+    marshallOptions: {
+      removeUndefinedValues: true
+    }
+  });
+
+  constructor(private usersTable: string) {}
+
+  async findByEmail(email: string): Promise<UserAccount | undefined> {
+    const response = await this.client.send(
+      new GetCommand({
+        TableName: this.usersTable,
+        Key: { email }
+      })
+    );
+    return response.Item as UserAccount | undefined;
+  }
+
+  async create(account: UserAccount): Promise<UserAccount> {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.usersTable,
+        Item: account,
+        ConditionExpression: "attribute_not_exists(email)"
+      })
+    );
+    return account;
   }
 }

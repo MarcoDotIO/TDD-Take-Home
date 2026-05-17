@@ -22,7 +22,8 @@ header,
 .toolbar,
 .row,
 .actions,
-.segmented {
+.segmented,
+.session {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -62,6 +63,15 @@ section > .table,
 
 form {
   padding: 18px;
+}
+
+.auth-panel {
+  max-width: 420px;
+}
+
+.session {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 label {
@@ -137,6 +147,11 @@ button {
   background: #ffd9d7;
 }
 
+.admin,
+.applicant {
+  background: #e4edf8;
+}
+
 .evidence {
   grid-column: 1 / -1;
   font-size: 12px;
@@ -183,7 +198,8 @@ button {
   header,
   .toolbar,
   .row,
-  .actions {
+  .actions,
+  .session {
     align-items: stretch;
     flex-direction: column;
   }
