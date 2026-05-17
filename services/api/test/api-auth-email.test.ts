@@ -166,6 +166,7 @@ describe("API auth boundaries and email side effects", () => {
     );
     expect(adminOverride.status).toBe(200);
     expect(emailProvider.messages.some((message) => message.subject.includes("decision updated"))).toBe(true);
+    expect(emailProvider.messages.find((message) => message.subject.includes("decision updated"))?.html).toContain("Admin override");
   });
 
   test("sends applicant confirmation on submission without live SES", async () => {
@@ -185,6 +186,9 @@ describe("API auth boundaries and email side effects", () => {
     expect(emailProvider.messages).toHaveLength(1);
     expect(emailProvider.messages[0]?.to).toEqual(["applicant-confirmation@example.gov"]);
     expect(emailProvider.messages[0]?.subject).toContain("COLA submission received");
+    expect(emailProvider.messages[0]?.html).toContain("U.S. Department of the Treasury");
+    expect(emailProvider.messages[0]?.html).toContain("COLA submission received");
+    expect(emailProvider.messages[0]?.html).toContain("Decision rationale");
   });
 
   test("does not create a fallback decision when Anthropic review is unavailable", async () => {
@@ -282,6 +286,61 @@ describe("API auth boundaries and email side effects", () => {
     expect(imageBlocks).toHaveLength(1);
     expect(imageBlocks[0]?.source).toEqual({ type: "url", url: "https://example.test/front.webp" });
     expect(decision.evidence.some((item) => item.field === "anthropicImageCount" && item.extracted === 1)).toBe(true);
+  });
+
+  test("sends uploaded base64 image blocks to Anthropic Messages and strips inline data before persistence", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    const reviewPipeline = new AnthropicMessagesReviewPipeline("test-key", "claude-opus-4-7", async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: "approved",
+                confidence: 0.92,
+                rationale: "Uploaded image-backed approval."
+              })
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    const app = createTestApp({
+      repository: new InMemorySubmissionRepository(),
+      emailProvider: new CapturingEmailProvider(),
+      reviewPipeline
+    });
+    const applicantHeaders = await authHeaders(app, "applicant-uploaded-image@example.gov");
+
+    const response = await app.fetch(
+      new Request("http://localhost/submissions", {
+        method: "POST",
+        headers: applicantHeaders,
+        body: JSON.stringify({
+          ...validDraft(),
+          images: [
+            {
+              id: "front",
+              filename: "front.png",
+              mimeType: "image/png",
+              dataUrl: "data:image/png;base64,aGVsbG8="
+            }
+          ]
+        })
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { submission: ColaSubmission };
+    const messages = capturedBody?.messages as Array<{ content: Array<{ type: string; source?: Record<string, string> }> }>;
+    const imageBlocks = messages[0]?.content.filter((block) => block.type === "image") ?? [];
+
+    expect(imageBlocks[0]?.source).toEqual({ type: "base64", media_type: "image/png", data: "aGVsbG8=" });
+    expect(body.submission.images[0]?.dataUrl).toBeUndefined();
+    expect(body.submission.images[0]?.filename).toBe("front.png");
   });
 
   test("includes Bedrock region evidence for Bedrock decisions", async () => {

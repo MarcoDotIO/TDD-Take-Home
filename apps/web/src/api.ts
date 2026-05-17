@@ -41,7 +41,16 @@ export interface SubmissionDraft {
   abv?: number;
   volume?: number;
   volumeUnit?: string;
-  images: Array<{ id: string; localPath?: string; url?: string; position?: string }>;
+  images: Array<{
+    id: string;
+    localPath?: string;
+    url?: string;
+    dataUrl?: string;
+    filename?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    position?: string;
+  }>;
 }
 
 export async function login(email: string, password: string): Promise<Session> {

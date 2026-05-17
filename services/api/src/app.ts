@@ -101,7 +101,8 @@ export function createApp(dependencies: AppDependencies = {}) {
           };
           const decision = await reviewPipeline.review(submission);
           submission.status = decision.status;
-          const record = await repository.create(submission, decision);
+          const persistedSubmission = stripInlineImageData(submission);
+          const record = await repository.create(persistedSubmission, decision);
           await repository.audit({
             id: randomUUID(),
             actorId: auth.userId,
@@ -178,6 +179,13 @@ export function createApp(dependencies: AppDependencies = {}) {
         return json({ error: "Internal server error." }, 500);
       }
     }
+  };
+}
+
+function stripInlineImageData(submission: ColaSubmission): ColaSubmission {
+  return {
+    ...submission,
+    images: submission.images.map(({ dataUrl: _dataUrl, ...image }) => image)
   };
 }
 

@@ -112,7 +112,8 @@ export class BedrockReviewPipeline implements AiReviewPipeline {
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type AnthropicTextBlock = { type: "text"; text: string };
 type AnthropicUrlImageBlock = { type: "image"; source: { type: "url"; url: string } };
-type AnthropicInputContentBlock = AnthropicTextBlock | AnthropicUrlImageBlock;
+type AnthropicBase64ImageBlock = { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+type AnthropicInputContentBlock = AnthropicTextBlock | AnthropicUrlImageBlock | AnthropicBase64ImageBlock;
 type AnthropicMessageContent = string | AnthropicInputContentBlock[];
 type AnthropicContentBlock = AnthropicTextBlock | ({ type: string } & Record<string, unknown>);
 type AnthropicMessageClient = {
@@ -331,6 +332,10 @@ function buildAnthropicPrompt(submission: ColaSubmission, deterministic: Automat
         id: image.id,
         position: image.position,
         hasUrl: Boolean(validHttpUrl(image.url)),
+        hasUploadedData: Boolean(parseDataUrl(image.dataUrl)),
+        filename: image.filename,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
         localPath: image.localPath,
         widthPixels: image.widthPixels,
         heightPixels: image.heightPixels
@@ -342,11 +347,13 @@ function buildAnthropicPrompt(submission: ColaSubmission, deterministic: Automat
 function buildAnthropicContent(submission: ColaSubmission, deterministic: AutomationDecision): AnthropicMessageContent {
   const prompt = buildAnthropicPrompt(submission, deterministic);
   const imageBlocks = submission.images
-    .map((image): AnthropicUrlImageBlock | undefined => {
+    .map((image): AnthropicUrlImageBlock | AnthropicBase64ImageBlock | undefined => {
       const url = validHttpUrl(image.url);
-      return url ? { type: "image", source: { type: "url", url } } : undefined;
+      if (url) return { type: "image", source: { type: "url", url } };
+      const data = parseDataUrl(image.dataUrl);
+      return data ? { type: "image", source: { type: "base64", media_type: data.mediaType, data: data.base64 } } : undefined;
     })
-    .filter((block): block is AnthropicUrlImageBlock => Boolean(block))
+    .filter((block): block is AnthropicUrlImageBlock | AnthropicBase64ImageBlock => Boolean(block))
     .slice(0, MAX_ANTHROPIC_IMAGE_BLOCKS);
 
   if (!imageBlocks.length) return prompt;
@@ -362,6 +369,16 @@ function validHttpUrl(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function parseDataUrl(value: string | undefined): { mediaType: string; base64: string } | undefined {
+  if (!value) return undefined;
+  const match = value.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return undefined;
+  return {
+    mediaType: match[1] === "image/jpg" ? "image/jpeg" : match[1],
+    base64: match[2]
+  };
 }
 
 function countAnthropicImageBlocks(content: AnthropicMessageContent): number {

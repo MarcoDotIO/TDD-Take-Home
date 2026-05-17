@@ -12,6 +12,10 @@ export interface ColaImage {
   id: string;
   localPath?: string;
   url?: string;
+  dataUrl?: string;
+  filename?: string;
+  mimeType?: string;
+  sizeBytes?: number;
   position?: string;
   widthPixels?: number;
   heightPixels?: number;
