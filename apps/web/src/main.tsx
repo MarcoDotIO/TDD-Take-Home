@@ -430,13 +430,8 @@ function ApplicantView({ session }: { session: Session }) {
     refresh().catch((err) => setError(err.message));
   }, [session.token]);
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  async function submitApplication() {
     if (submitInFlightRef.current) return;
-    if (wizardStep !== "review") {
-      nextStep();
-      return;
-    }
     setError(undefined);
     if (!submissionImages.length) {
       setError("Add at least one label photo or image URL before submitting.");
@@ -520,7 +515,7 @@ function ApplicantView({ session }: { session: Session }) {
       {error && <Alert tone="error">{error}</Alert>}
 
       <div className="portal-grid">
-        <form className="usa-card submission-card" id="application-form" onSubmit={submit}>
+        <section className="usa-card submission-card" id="application-form" aria-busy={isSubmitting}>
           <div className="usa-card__header">
             <div>
               <span className="eyebrow">Guided COLA package</span>
@@ -667,14 +662,14 @@ function ApplicantView({ session }: { session: Session }) {
                   Next <ArrowRight size={16} />
                 </button>
               ) : (
-                <button type="submit" className="usa-button usa-button--primary" disabled={isSubmitting}>
+                <button type="button" className="usa-button usa-button--primary" onClick={() => void submitApplication()} disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 size={16} className="spin-icon" /> : <Upload size={16} />}
                   {isSubmitting ? "Processing application" : "Submit application"}
                 </button>
               )}
             </div>
           </div>
-        </form>
+        </section>
 
         <section className="usa-card record-card" id="records">
           <div className="usa-card__header">
@@ -990,7 +985,9 @@ function SubmissionTable({ records, emptyLabel }: { records: SubmissionRecord[];
                   <Status status={record.submission.status} />
                 </td>
                 <td>{formatDate(record.submission.submittedAt)}</td>
-                <td className="rationale-cell">{record.decision?.rationale ?? "Pending automated decision"}</td>
+                <td className="rationale-cell">
+                  <span>{record.decision?.rationale ?? "Pending automated decision"}</span>
+                </td>
                 <td>
                   <EvidenceSummary record={record} />
                 </td>

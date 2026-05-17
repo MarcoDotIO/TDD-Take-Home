@@ -53,7 +53,7 @@ export async function sendSubmissionEmails(
   submission: ColaSubmission,
   decision: AutomationDecision
 ): Promise<void> {
-  const adminEmails = parseEmailList(process.env.ADMIN_NOTIFY_EMAIL);
+  const adminEmails = parseEmailList(process.env.ADMIN_NOTIFY_EMAIL).filter((email) => email !== normalizeEmailAddress(submission.applicantEmail));
   await provider.send({
     to: [submission.applicantEmail],
     subject: `COLA submission received: ${submission.brandName}`,
@@ -120,10 +120,15 @@ function submissionRows(submission: ColaSubmission, rationale?: string): Array<[
 
 function parseEmailList(value: string | undefined): string[] {
   if (!value) return [];
-  return value
+  const emails = value
     .split(",")
-    .map((email) => email.trim())
+    .map(normalizeEmailAddress)
     .filter(Boolean);
+  return [...new Set(emails)];
+}
+
+function normalizeEmailAddress(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 function renderTddsEmail({
